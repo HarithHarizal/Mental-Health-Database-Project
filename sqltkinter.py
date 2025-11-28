@@ -2,19 +2,19 @@ import tkinter as tk
 from tkinter import ttk
 import mysql.connector
 
-#
-
 # -------------------------------------------------------------------
 # DATABASE CONNECTION
 # -------------------------------------------------------------------
-# Note password has been editted for privacy,
-# this should be  editted to fit your sql host
-# This originally fitted Harith's
+# Note password has been edited for privacy,
+# this should be  edited to fit your sql host
+# This originally fit Harith's
+
+
 def get_connection():
     return mysql.connector.connect(
         host="localhost",
         user="root",
-        password=""
+        password="",
         database="mental_health_access_multistate"
     )
 
