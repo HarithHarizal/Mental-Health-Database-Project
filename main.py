@@ -1,7 +1,7 @@
 import tkinter as tk
 from tkinter import ttk
 
-# this is a recent version as a mock without  using the actuall sql database,
+# this is a recent version as a mock without  using the actually sql database,
 # for sake of production and video updates, this is not final
 
 # MOCK DATA -------------------------------------------------------------------
@@ -29,6 +29,7 @@ def load_states():
     """Return list of states (id, name)."""
     return MOCK_STATES
 
+
 def fetch_metrics():
     """Load metrics associated with the selected state."""
     state_name = state_var.get()
@@ -46,9 +47,11 @@ def fetch_metrics():
     for row in data:
         metrics_tree.insert("", "end", values=row)
 
+
 # TKINTER UI -------------------------------------------------------------------
 
 root = tk.Tk()
+root.attributes('-fullscreen', True)
 root.title("Mental Health Access Viewer (UI Test)")
 root.geometry("900x500")
 
@@ -78,5 +81,26 @@ metrics_tree.pack(fill="both", expand=True, padx=10, pady=10)
 for col in columns:
     metrics_tree.heading(col, text=col)
     metrics_tree.column(col, width=180)
+
+
+def bring_to_front():
+    # Make sure the window is visible
+    root.deiconify()
+    root.update_idletasks()
+
+    # Raise it above other windows
+    root.lift()
+    root.attributes('-topmost', True)
+
+    # Give it keyboard focus
+    root.focus_force()
+
+    # Let it behave normally again after a moment
+    root.after(200, lambda: root.attributes('-topmost', False))
+
+
+# Schedule this to run *after* Tkinter has started its loop
+root.after(100, bring_to_front)
+
 
 root.mainloop()
