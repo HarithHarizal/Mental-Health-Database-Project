@@ -40,6 +40,77 @@ class MentalHealthApp(tk.Tk):
         self._build_ui()
         self.load_states_into_memory()
 
+    @staticmethod
+    def _format_heading_text(col):
+        base = col.replace("_", " ")
+        text = base.title()
+        return (text
+                .replace("Us", "US")
+                .replace("Id", "ID")
+                )
+
+    # =====================================================
+    # GENERIC TREEVIEW SORTING (with ▲ / ▼ indicators)
+    # =====================================================
+    def _treeview_sort_column(self, tree, col, reverse):
+        """
+        Sort a ttk.Treeview by a given column.
+
+        - Tries numeric sort first
+        - Falls back to string (case-insensitive)
+        - Clicking again toggles ascending/descending
+        - Shows ▲ for ascending, ▼ for descending on the active column
+        """
+        # Get current data in the tree
+        data = [(tree.set(item, col), item) for item in tree.get_children("")]
+
+        def convert(value):
+            try:
+                v = str(value).replace(",", "")
+                return float(v)
+            except (ValueError, TypeError):
+                return str(value).lower()
+
+        # Sort rows
+        data.sort(key=lambda t: convert(t[0]), reverse=reverse)
+
+        # Reorder rows
+        for index, (_, item) in enumerate(data):
+            tree.move(item, "", index)
+
+        # Update ALL column headings: text + click behavior
+        for c in tree["columns"]:
+            base_text = c.replace("_", " ").title()
+
+            if c == col:
+                # This is the column we just sorted
+                arrow = " ▲" if not reverse else " ▼"
+                text = base_text + arrow
+                next_reverse = not reverse  # toggle on next click
+            else:
+                # Other columns: no arrow, reset to ascending for next click
+                text = base_text
+                next_reverse = False
+
+            tree.heading(
+                c,
+                text=text,
+                command=lambda cc=c, rr=next_reverse: self._treeview_sort_column(tree, cc, rr)
+            )
+
+    def _reset_treeview_headings(self, tree):
+        """
+        Remove ▲ / ▼ arrows from all column headings
+        and reset click behavior to ascending sort.
+        """
+        for col in tree["columns"]:
+            base_text = col.replace("_", " ").title()
+            tree.heading(
+                col,
+                text=base_text,
+                command=lambda c=col: self._treeview_sort_column(tree, c, False)
+            )
+
     # -----------------------------------------------------
     # BUILD UI (TABS)
     # -----------------------------------------------------
@@ -63,6 +134,9 @@ class MentalHealthApp(tk.Tk):
     # =====================================================
     # STATES TAB  (CRUD FOR state_summary)
     # =====================================================
+    # =====================================================
+    # STATES TAB  (CRUD FOR state_summary)
+    # =====================================================
     def _build_states_tab(self):
         frame_form = ttk.LabelFrame(self.tab_states, text="State Details")
         frame_form.pack(fill="x", padx=10, pady=10)
@@ -74,7 +148,8 @@ class MentalHealthApp(tk.Tk):
         self.state_id_var = tk.StringVar()
         self.state_name_var = tk.StringVar()
 
-        self.entry_state_id = ttk.Entry(frame_form, textvariable=self.state_id_var, state="readonly", width=10)
+        self.entry_state_id = ttk.Entry(frame_form, textvariable=self.state_id_var,
+                                        state="readonly", width=10)
         self.entry_state_id.grid(row=0, column=1, padx=5, pady=5, sticky="w")
 
         self.entry_state_name = ttk.Entry(frame_form, textvariable=self.state_name_var, width=40)
@@ -96,9 +171,19 @@ class MentalHealthApp(tk.Tk):
 
         columns = ("state_id", "state_name")
         self.states_tree = ttk.Treeview(frame_table, columns=columns, show="headings", height=15)
+
         for col in columns:
-            self.states_tree.heading(col, text=col.replace("_", " ").title())
-            self.states_tree.column(col, width=200 if col == "state_name" else 80, anchor="center")
+            self.states_tree.heading(
+                col,
+                text=self._format_heading_text(col),
+                command=lambda c=col: self._treeview_sort_column(self.states_tree, c, False)
+            )
+            self.states_tree.column(
+                col,
+                width=200 if col == "state_name" else 80,
+                anchor="center"
+            )
+
         self.states_tree.pack(fill="both", expand=True, side="left")
 
         self.states_tree.bind("<<TreeviewSelect>>", self.on_state_row_select)
@@ -107,28 +192,38 @@ class MentalHealthApp(tk.Tk):
         self.states_tree.configure(yscroll=scrollbar.set)
         scrollbar.pack(side="right", fill="y")
 
+        # *** This is what actually loads the data ***
         self.load_states_table()
 
     # ----------------- STATES CRUD METHODS ----------------
     def load_states_table(self):
         """Load states into the table and into memory."""
+        # Clear existing rows
         for row in self.states_tree.get_children():
             self.states_tree.delete(row)
+
+        self._reset_treeview_headings(self.states_tree)
 
         try:
             conn = get_connection()
             cur = conn.cursor()
             cur.execute("SELECT state_id, state_name FROM state_summary ORDER BY state_name")
             rows = cur.fetchall()
-            cur.close()
-            conn.close()
         except Exception as e:
             show_db_error(e)
             return
+        finally:
+            try:
+                cur.close()
+                conn.close()
+            except:
+                pass
 
-        self.state_list = rows[:]  # store in memory
+        # store in memory
+        self.state_list = rows[:]
         self.state_map = {name: sid for sid, name in rows}
 
+        # actually insert into the Treeview
         for sid, name in rows:
             self.states_tree.insert("", "end", values=(sid, name))
 
@@ -228,7 +323,7 @@ class MentalHealthApp(tk.Tk):
 
         labels = [
             "ID (auto):", "State:", "Metric Name:",
-            "US Value:", "State Value:", "Notes:"
+            "US Value:", "State Value:"
         ]
         for i, text in enumerate(labels):
             ttk.Label(frame_form, text=text).grid(row=i, column=0, padx=5, pady=3, sticky="e")
@@ -238,7 +333,6 @@ class MentalHealthApp(tk.Tk):
         self.metric_name_var = tk.StringVar()
         self.metric_us_var = tk.StringVar()
         self.metric_state_val_var = tk.StringVar()
-        self.metric_notes_var = tk.StringVar()
 
         self.entry_metric_id = ttk.Entry(frame_form, textvariable=self.metric_id_var, state="readonly", width=10)
         self.entry_metric_id.grid(row=0, column=1, padx=5, pady=3, sticky="w")
@@ -255,9 +349,6 @@ class MentalHealthApp(tk.Tk):
         self.entry_metric_state_val = ttk.Entry(frame_form, textvariable=self.metric_state_val_var, width=15)
         self.entry_metric_state_val.grid(row=4, column=1, padx=5, pady=3, sticky="w")
 
-        self.entry_metric_notes = ttk.Entry(frame_form, textvariable=self.metric_notes_var, width=60)
-        self.entry_metric_notes.grid(row=5, column=1, padx=5, pady=3, sticky="w")
-
         # buttons
         frame_buttons = ttk.Frame(frame_form)
         frame_buttons.grid(row=6, column=0, columnspan=2, pady=5)
@@ -272,14 +363,18 @@ class MentalHealthApp(tk.Tk):
         frame_table = ttk.LabelFrame(self.tab_metrics, text="Crisis Response Metrics")
         frame_table.pack(fill="both", expand=True, padx=10, pady=5)
 
-        columns = ("id", "state_name", "metric", "us_value", "state_value", "notes")
+        columns = ("id", "state_name", "metric", "us_value", "state_value")
         self.metrics_tree = ttk.Treeview(frame_table, columns=columns, show="headings", height=15)
         for col in columns:
-            self.metrics_tree.heading(col, text=col.replace("_", " ").title())
+            self.metrics_tree.heading(
+                col,
+                text=self._format_heading_text(col),
+                command=lambda c=col: self._treeview_sort_column(self.metrics_tree, c, False)
+            )
             width = 80
             if col == "state_name":
                 width = 150
-            elif col in ("metric", "notes"):
+            elif col == "metric":
                 width = 250
             self.metrics_tree.column(col, width=width, anchor="center")
         self.metrics_tree.pack(side="left", fill="both", expand=True)
@@ -297,23 +392,25 @@ class MentalHealthApp(tk.Tk):
         for row in self.metrics_tree.get_children():
             self.metrics_tree.delete(row)
 
+        self._reset_treeview_headings(self.states_tree)
+
         try:
             conn = get_connection()
             cur = conn.cursor()
-            # assume table structure: id, state_id, metric, us_value, state_value, notes
+            # assume table structure: id, state_id, metric, us_value, state_value
             query = """
                 SELECT c.id,
                        s.state_name,
                        c.metric,
                        c.us_value,
-                       c.state_value,
-                       c.notes
+                       c.state_value
                 FROM crisis_response_services c
                 JOIN state_summary s ON c.state_id = s.state_id
                 ORDER BY s.state_name, c.metric
             """
             cur.execute(query)
             rows = cur.fetchall()
+            self.metric_names = sorted({row[2] for row in rows})
             cur.close()
             conn.close()
         except Exception as e:
@@ -329,7 +426,6 @@ class MentalHealthApp(tk.Tk):
         self.metric_name_var.set("")
         self.metric_us_var.set("")
         self.metric_state_val_var.set("")
-        self.metric_notes_var.set("")
 
     def on_metric_row_select(self, event):
         selected = self.metrics_tree.selection()
@@ -342,14 +438,12 @@ class MentalHealthApp(tk.Tk):
             self.metric_name_var.set(values[2])
             self.metric_us_var.set(values[3])
             self.metric_state_val_var.set(values[4])
-            self.metric_notes_var.set(values[5])
 
     def add_metric(self):
         state_name = self.metric_state_var.get()
         metric = self.metric_name_var.get().strip()
         us_val = self.metric_us_var.get().strip()
         st_val = self.metric_state_val_var.get().strip()
-        notes = self.metric_notes_var.get().strip()
 
         if not state_name or not metric:
             messagebox.showwarning("Validation", "State and metric name are required.")
@@ -366,20 +460,20 @@ class MentalHealthApp(tk.Tk):
             cur = conn.cursor()
             query = """
                 INSERT INTO crisis_response_services
-                    (state_id, metric, us_value, state_value, notes)
+                    (state_id, metric, us_value, state_value)
                 VALUES (%s, %s, %s, %s, %s)
             """
-            cur.execute(query, (state_id, us_val or None, st_val or None, metric, notes))
+            cur.execute(query, (state_id, us_val or None, st_val or None, metric))
         except mysql.connector.errors.ProgrammingError:
             # if column order in your DB is different, use this safer version:
             conn.rollback()
             try:
                 query = """
                     INSERT INTO crisis_response_services
-                        (state_id, metric, us_value, state_value, notes)
+                        (state_id, metric, us_value, state_value)
                     VALUES (%s, %s, %s, %s, %s)
                 """
-                cur.execute(query, (state_id, metric, us_val or None, st_val or None, notes))
+                cur.execute(query, (state_id, metric, us_val or None, st_val or None))
             except Exception as e2:
                 show_db_error(e2)
                 conn.close()
@@ -406,7 +500,6 @@ class MentalHealthApp(tk.Tk):
         metric = self.metric_name_var.get().strip()
         us_val = self.metric_us_var.get().strip()
         st_val = self.metric_state_val_var.get().strip()
-        notes = self.metric_notes_var.get().strip()
 
         if not state_name or not metric:
             messagebox.showwarning("Validation", "State and metric name are required.")
@@ -425,11 +518,10 @@ class MentalHealthApp(tk.Tk):
                 SET state_id = %s,
                     metric = %s,
                     us_value = %s,
-                    state_value = %s,
-                    notes = %s
+                    state_value = %s
                 WHERE id = %s
             """
-            cur.execute(query, (state_id, metric, us_val or None, st_val or None, notes, mid))
+            cur.execute(query, (state_id, metric, us_val or None, st_val or None, mid))
             conn.commit()
             cur.close()
             conn.close()
@@ -487,30 +579,43 @@ class MentalHealthApp(tk.Tk):
         scrollbar.pack(side="right", fill="y")
 
         # ---------- Query 1 ----------
-        q1 = ttk.LabelFrame(frame_controls, text="Q1: States where state value is WORSE than US for a metric")
+        q1 = ttk.LabelFrame(frame_controls, text="Q1: States where value is WORSE than US for a metric.")
         q1.pack(fill="x", pady=3)
 
-        ttk.Label(q1, text="Metric name:").pack(side="left", padx=5)
+        ttk.Label(q1, text="Metric Name:").pack(side="left", padx=5)
+
         self.q1_metric_var = tk.StringVar()
-        ttk.Entry(q1, textvariable=self.q1_metric_var, width=30).pack(side="left", padx=5)
+        self.q1_metric_combo = ttk.Combobox(
+            q1,
+            textvariable=self.q1_metric_var,
+            state="readonly",
+            width=30
+        )
+        self.q1_metric_combo.pack(side="left", padx=5)
+        self.q1_metric_combo["values"] = self.metric_names  # <-- LIST OF METRICS
+
         ttk.Button(q1, text="Run", command=self.run_query1).pack(side="left", padx=5)
 
         # ---------- Query 2 ----------
-        q2 = ttk.LabelFrame(frame_controls, text="Q2: States where (state - US) > threshold")
+        q2 = ttk.LabelFrame(frame_controls, text="Q2: States where value is BETTER than US for a metric.")
         q2.pack(fill="x", pady=3)
 
-        ttk.Label(q2, text="Metric name:").pack(side="left", padx=5)
-        self.q2_metric_var = tk.StringVar()
-        ttk.Entry(q2, textvariable=self.q2_metric_var, width=30).pack(side="left", padx=5)
+        ttk.Label(q2, text="Metric Name:").pack(side="left", padx=5)
 
-        ttk.Label(q2, text="Difference threshold:").pack(side="left", padx=5)
-        self.q2_thresh_var = tk.StringVar(value="0")
-        ttk.Entry(q2, textvariable=self.q2_thresh_var, width=10).pack(side="left", padx=5)
+        self.q2_metric_var = tk.StringVar()
+        self.q2_metric_combo = ttk.Combobox(
+            q2,
+            textvariable=self.q2_metric_var,
+            state="readonly",
+            width=30
+        )
+        self.q2_metric_combo.pack(side="left", padx=5)
+        self.q2_metric_combo["values"] = self.metric_names
 
         ttk.Button(q2, text="Run", command=self.run_query2).pack(side="left", padx=5)
 
         # ---------- Query 3 ----------
-        q3 = ttk.LabelFrame(frame_controls, text="Q3: Metrics in a state that are worse than US")
+        q3 = ttk.LabelFrame(frame_controls, text="Q3: Metrics in a state that are worse than US.")
         q3.pack(fill="x", pady=3)
 
         ttk.Label(q3, text="State:").pack(side="left", padx=5)
@@ -521,7 +626,7 @@ class MentalHealthApp(tk.Tk):
         ttk.Button(q3, text="Run", command=self.run_query3).pack(side="left", padx=5)
 
         # ---------- Query 4 ----------
-        q4 = ttk.LabelFrame(frame_controls, text="Q4: States with AVG (state - US) gap above threshold")
+        q4 = ttk.LabelFrame(frame_controls, text="Q4: States with AVG (state - US) gap above threshold.")
         q4.pack(fill="x", pady=3)
 
         ttk.Label(q4, text="Gap threshold:").pack(side="left", padx=5)
@@ -531,7 +636,7 @@ class MentalHealthApp(tk.Tk):
         ttk.Button(q4, text="Run", command=self.run_query4).pack(side="left", padx=5)
 
         # ---------- Query 5 ----------
-        q5 = ttk.LabelFrame(frame_controls, text="Q5: States with # of worse-than-US metrics >= N")
+        q5 = ttk.LabelFrame(frame_controls, text="Q5: States with # of worse-than-US metrics >= N.")
         q5.pack(fill="x", pady=3)
 
         ttk.Label(q5, text="N (minimum metrics):").pack(side="left", padx=5)
@@ -539,7 +644,6 @@ class MentalHealthApp(tk.Tk):
         ttk.Entry(q5, textvariable=self.q5_n_var, width=10).pack(side="left", padx=5)
 
         ttk.Button(q5, text="Run", command=self.run_query5).pack(side="left", padx=5)
-
 
     # -- Helper to reload state dropdowns used in other tabs/queries ---
     def load_states_into_memory(self):
@@ -612,37 +716,36 @@ class MentalHealthApp(tk.Tk):
 
     # ------------------- QUERY 2 --------------------------
     def run_query2(self):
-        metric = self.q2_metric_var.get().strip()
+        metric = self.q2_metric_var.get()
+
         if not metric:
-            messagebox.showwarning("Validation", "Enter a metric name.")
+            messagebox.showwarning("Validation", "Select a metric name.")
             return
 
-        try:
-            thresh = float(self.q2_thresh_var.get())
-        except ValueError:
-            messagebox.showwarning("Validation", "Threshold must be a number.")
-            return
+        # Clean metric (in case it's accidentally a tuple)
+        if isinstance(metric, tuple):
+            metric = metric[0]
 
         query = """
-            SELECT s.state_name,
-                   c.metric,
-                   c.us_value,
-                   c.state_value,
+            SELECT s.state_name, c.metric, c.us_value, c.state_value,
                    (c.state_value - c.us_value) AS diff
-            FROM crisis_response_services c
+            FROM state_metrics c
             JOIN state_summary s ON c.state_id = s.state_id
             WHERE c.metric = %s
-              AND (c.state_value - c.us_value) > %s
+              AND c.state_value > c.us_value
             ORDER BY diff DESC
         """
 
         try:
             conn = get_connection()
             cur = conn.cursor()
-            cur.execute(query, (metric, thresh))
+
+            cur.execute(query, (metric,))  # EXACTLY one parameter
+
             self._display_query_results(cur)
             cur.close()
             conn.close()
+
         except Exception as e:
             show_db_error(e)
 
