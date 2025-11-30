@@ -142,14 +142,13 @@ class MentalHealthApp(tk.Tk):
         frame_form.pack(fill="x", padx=10, pady=10)
 
         # form fields
-        ttk.Label(frame_form, text="ID (auto):").grid(row=0, column=0, padx=5, pady=5, sticky="e")
+        ttk.Label(frame_form, text="ID (auto-generated):").grid(row=0, column=0, padx=5, pady=5, sticky="e")
         ttk.Label(frame_form, text="State Name:").grid(row=1, column=0, padx=5, pady=5, sticky="e")
 
         self.state_id_var = tk.StringVar()
         self.state_name_var = tk.StringVar()
 
-        self.entry_state_id = ttk.Entry(frame_form, textvariable=self.state_id_var,
-                                        state="readonly", width=10)
+        self.entry_state_id = ttk.Label(frame_form, textvariable=self.state_id_var)
         self.entry_state_id.grid(row=0, column=1, padx=5, pady=5, sticky="w")
 
         self.entry_state_name = ttk.Entry(frame_form, textvariable=self.state_name_var, width=40)
@@ -322,7 +321,7 @@ class MentalHealthApp(tk.Tk):
         frame_form.pack(fill="x", padx=10, pady=10)
 
         labels = [
-            "ID (auto):", "State:", "Metric Name:",
+            "ID (auto-generated):", "State:", "Metric Name:",
             "US Value:", "State Value:"
         ]
         for i, text in enumerate(labels):
@@ -334,7 +333,7 @@ class MentalHealthApp(tk.Tk):
         self.metric_us_var = tk.StringVar()
         self.metric_state_val_var = tk.StringVar()
 
-        self.entry_metric_id = ttk.Entry(frame_form, textvariable=self.metric_id_var, state="readonly", width=10)
+        self.entry_metric_id = ttk.Label(frame_form, textvariable=self.metric_id_var)
         self.entry_metric_id.grid(row=0, column=1, padx=5, pady=3, sticky="w")
 
         self.combo_metric_state = ttk.Combobox(frame_form, textvariable=self.metric_state_var, state="readonly", width=30)
@@ -568,13 +567,13 @@ class MentalHealthApp(tk.Tk):
         frame_controls.pack(fill="x", side="top")
 
         # Bottom: shared results table
-        frame_results = ttk.LabelFrame(container, text="Query Results")
-        frame_results.pack(fill="both", expand=True, pady=(10, 0))
+        self.frame_results = ttk.LabelFrame(container, text="Query Results")
+        self.frame_results.pack(fill="both", expand=True, pady=(10, 0))
 
-        self.query_tree = ttk.Treeview(frame_results, show="headings")
+        self.query_tree = ttk.Treeview(self.frame_results, show="headings")
         self.query_tree.pack(side="left", fill="both", expand=True)
 
-        scrollbar = ttk.Scrollbar(frame_results, orient="vertical", command=self.query_tree.yview)
+        scrollbar = ttk.Scrollbar(self.frame_results, orient="vertical", command=self.query_tree.yview)
         self.query_tree.configure(yscroll=scrollbar.set)
         scrollbar.pack(side="right", fill="y")
 
@@ -615,7 +614,10 @@ class MentalHealthApp(tk.Tk):
         ttk.Button(q2, text="Run", command=self.run_query2).pack(side="left", padx=5)
 
         # ---------- Query 3 ----------
-        q3 = ttk.LabelFrame(frame_controls, text="Q3: Metrics in a state that are worse than US.")
+        q3 = ttk.LabelFrame(
+            frame_controls,
+            text="Q3: Top 5 metrics where a state performs WORSE than the US."
+        )
         q3.pack(fill="x", pady=3)
 
         ttk.Label(q3, text="State:").pack(side="left", padx=5)
@@ -626,17 +628,17 @@ class MentalHealthApp(tk.Tk):
         ttk.Button(q3, text="Run", command=self.run_query3).pack(side="left", padx=5)
 
         # ---------- Query 4 ----------
-        q4 = ttk.LabelFrame(frame_controls, text="Q4: States with AVG (state - US) gap above threshold.")
+        q4 = ttk.LabelFrame(frame_controls, text="Q4: States that outperform the US on average (aggregated across all metrics) by more than __. (including +/-)")
         q4.pack(fill="x", pady=3)
 
-        ttk.Label(q4, text="Gap threshold:").pack(side="left", padx=5)
+        ttk.Label(q4, text="Gap Threshold:").pack(side="left", padx=5)
         self.q4_thresh_var = tk.StringVar(value="0")
         ttk.Entry(q4, textvariable=self.q4_thresh_var, width=10).pack(side="left", padx=5)
 
         ttk.Button(q4, text="Run", command=self.run_query4).pack(side="left", padx=5)
 
         # ---------- Query 5 ----------
-        q5 = ttk.LabelFrame(frame_controls, text="Q5: States with # of worse-than-US metrics >= N.")
+        q5 = ttk.LabelFrame(frame_controls, text="Show states that perform worse than the US on at least N metrics (with details).")
         q5.pack(fill="x", pady=3)
 
         ttk.Label(q5, text="N (minimum metrics):").pack(side="left", padx=5)
@@ -669,19 +671,44 @@ class MentalHealthApp(tk.Tk):
             self.q3_state_combo["values"] = names
 
     # ---------------- QUERY TABLE UTIL --------------------
-    def _display_query_results(self, cursor):
-        # clear existing columns and rows
+    def _display_query_results(self, cursor, title=None, sortable=True):
+        # 1) Optional: update the "Query Results" header text
+        if hasattr(self, "frame_results"):
+            if title:
+                self.frame_results.config(text=title)
+            else:
+                self.frame_results.config(text="Query Results")
+
+        # 2) Fetch all rows ONCE
+        rows = cursor.fetchall()
+
+        # 3) Clear existing columns and rows
         self.query_tree.delete(*self.query_tree.get_children())
         self.query_tree["columns"] = ()
 
+        # 4) Build columns from cursor.description (still valid after fetchall)
         col_names = [desc[0] for desc in cursor.description]
         self.query_tree["columns"] = col_names
 
         for col in col_names:
-            self.query_tree.heading(col, text=col.replace("_", " ").title())
+            heading_text = col.replace("_", " ").title()
+
+            if sortable:
+                # normal behavior: clickable, sortable columns
+                cmd = lambda c=col: self._treeview_sort_column(self.query_tree, c, False)
+            else:
+                # for Q3: disable sorting (click does nothing)
+                cmd = lambda: None
+
+            self.query_tree.heading(
+                col,
+                text=heading_text,
+                command=cmd
+            )
             self.query_tree.column(col, anchor="center", width=150)
 
-        for row in cursor.fetchall():
+        # 5) Insert all rows
+        for row in rows:
             self.query_tree.insert("", "end", values=row)
 
     # ------------------- QUERY 1 --------------------------
@@ -700,7 +727,7 @@ class MentalHealthApp(tk.Tk):
             FROM crisis_response_services c
             JOIN state_summary s ON c.state_id = s.state_id
             WHERE c.metric = %s
-              AND c.state_value > c.us_value
+              AND c.state_value < c.us_value
             ORDER BY diff DESC
         """
 
@@ -713,6 +740,10 @@ class MentalHealthApp(tk.Tk):
             conn.close()
         except Exception as e:
             show_db_error(e)
+
+        self._display_query_results(
+            cur,"Query Results – Q1: States where value is WORSE than US for a metric."
+        )
 
     # ------------------- QUERY 2 --------------------------
     def run_query2(self):
@@ -727,9 +758,12 @@ class MentalHealthApp(tk.Tk):
             metric = metric[0]
 
         query = """
-            SELECT s.state_name, c.metric, c.us_value, c.state_value,
+            SELECT s.state_name,
+                   c.metric,
+                   c.us_value,
+                   c.state_value,
                    (c.state_value - c.us_value) AS diff
-            FROM state_metrics c
+            FROM crisis_response_services c
             JOIN state_summary s ON c.state_id = s.state_id
             WHERE c.metric = %s
               AND c.state_value > c.us_value
@@ -739,15 +773,16 @@ class MentalHealthApp(tk.Tk):
         try:
             conn = get_connection()
             cur = conn.cursor()
-
-            cur.execute(query, (metric,))  # EXACTLY one parameter
-
+            cur.execute(query, (metric,))  # exactly one %s
             self._display_query_results(cur)
             cur.close()
             conn.close()
-
         except Exception as e:
             show_db_error(e)
+
+        self._display_query_results(
+            cur,"Query Results – Q2: States where value is BETTER than US for a metric."
+        )
 
     # ------------------- QUERY 3 --------------------------
     def run_query3(self):
@@ -761,6 +796,9 @@ class MentalHealthApp(tk.Tk):
             messagebox.showerror("Error", "State not found in memory.")
             return
 
+        # New Q3:
+        # Top 5 metrics where this state is WORSE than the US
+        # diff = state_value - us_value (more negative = worse)
         query = """
             SELECT c.metric,
                    c.us_value,
@@ -768,15 +806,20 @@ class MentalHealthApp(tk.Tk):
                    (c.state_value - c.us_value) AS diff
             FROM crisis_response_services c
             WHERE c.state_id = %s
-              AND c.state_value > c.us_value
-            ORDER BY diff DESC
+              AND c.state_value < c.us_value
+            ORDER BY diff ASC
+            LIMIT 5
         """
 
         try:
             conn = get_connection()
             cur = conn.cursor()
             cur.execute(query, (state_id,))
-            self._display_query_results(cur)
+            self._display_query_results(
+                cur,
+                f"Query Results – Q3: Top 5 metrics where {state_name} is worse than the US.",
+                sortable=False  # disable manual sorting for this query
+            )
             cur.close()
             conn.close()
         except Exception as e:
@@ -810,6 +853,10 @@ class MentalHealthApp(tk.Tk):
         except Exception as e:
             show_db_error(e)
 
+        self._display_query_results(
+            cur,f"Query Results – Q4: States that outperform the US on average by more than {thresh}."
+        )
+
     # ------------------- QUERY 5 --------------------------
     def run_query5(self):
         try:
@@ -818,22 +865,35 @@ class MentalHealthApp(tk.Tk):
             messagebox.showwarning("Validation", "N must be an integer.")
             return
 
+        # Step 1: Find states with >= N worse-than-US metrics
+        # Step 2: Return *detailed* metric rows for those states
         query = """
             SELECT s.state_name,
-                   COUNT(*) AS num_worse_metrics
+                   c.metric,
+                   c.us_value,
+                   c.state_value,
+                   (c.state_value - c.us_value) AS gap
             FROM crisis_response_services c
             JOIN state_summary s ON c.state_id = s.state_id
-            WHERE c.state_value > c.us_value
-            GROUP BY s.state_id, s.state_name
-            HAVING COUNT(*) >= %s
-            ORDER BY num_worse_metrics DESC
+            WHERE c.state_value < c.us_value
+              AND c.state_id IN (
+                    SELECT c2.state_id
+                    FROM crisis_response_services c2
+                    WHERE c2.state_value < c2.us_value
+                    GROUP BY c2.state_id
+                    HAVING COUNT(*) >= %s
+              )
+            ORDER BY s.state_name ASC, gap ASC
         """
 
         try:
             conn = get_connection()
             cur = conn.cursor()
             cur.execute(query, (n,))
-            self._display_query_results(cur)
+            self._display_query_results(
+                cur,
+                f"Query Results – Q5: States that perform worse than the US on at least {n} metrics (with details)."
+            )
             cur.close()
             conn.close()
         except Exception as e:
