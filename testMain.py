@@ -842,14 +842,14 @@ class MentalHealthApp(tk.Tk):
             conn = get_connection()
             cur = conn.cursor()
             cur.execute(query, (metric,))
-            cur.close()
-            conn.close()
         except Exception as e:
             show_db_error(e)
 
         self._display_query_results(
             cur,"Query Results – Q1: States where value is WORSE than US for a metric."
         )
+        cur.close()
+        conn.close()
 
     # ------------------- QUERY 2 --------------------------
     def run_query2(self):
@@ -880,14 +880,14 @@ class MentalHealthApp(tk.Tk):
             conn = get_connection()
             cur = conn.cursor()
             cur.execute(query, (metric,))
-            cur.close()
-            conn.close()
         except Exception as e:
             show_db_error(e)
 
         self._display_query_results(
             cur,"Query Results – Q2: States where value is BETTER than US for a metric."
         )
+        cur.close()
+        conn.close()
 
     # ------------------- QUERY 3 --------------------------
     def run_query3(self):
