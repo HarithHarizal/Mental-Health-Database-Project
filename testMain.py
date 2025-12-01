@@ -31,11 +31,12 @@ def show_db_error(err):
 class MentalHealthApp(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("Mental Health Access – Database Front End")
+        self.title("Mental Health Access")
         self.geometry("1100x650")
 
         self.state_map = {}   # name -> id
         self.state_list = []  # list of (id, name)
+        self.metric_names = []
 
         self._build_ui()
         self.load_states_into_memory()
@@ -186,7 +187,7 @@ class MentalHealthApp(tk.Tk):
         self.zip_tree.pack(side="left", fill="both", expand=True)
 
         scrollbar = ttk.Scrollbar(frame_table, orient="vertical", command=self.zip_tree.yview)
-        self.zip_tree.configure(yscroll=scrollbar.set)
+        self.zip_tree.configure(yscrollcommand=scrollbar.set)
         scrollbar.pack(side="right", fill="y")
 
         self.refresh_state_dropdowns()
@@ -303,7 +304,7 @@ class MentalHealthApp(tk.Tk):
         self.states_tree.bind("<<TreeviewSelect>>", self.on_state_row_select)
 
         scrollbar = ttk.Scrollbar(frame_table, orient="vertical", command=self.states_tree.yview)
-        self.states_tree.configure(yscroll=scrollbar.set)
+        self.states_tree.configure(yscrollcommand=scrollbar.set)
         scrollbar.pack(side="right", fill="y")
 
         # *** This is what actually loads the data ***
@@ -496,7 +497,7 @@ class MentalHealthApp(tk.Tk):
         self.metrics_tree.bind("<<TreeviewSelect>>", self.on_metric_row_select)
 
         scrollbar = ttk.Scrollbar(frame_table, orient="vertical", command=self.metrics_tree.yview)
-        self.metrics_tree.configure(yscroll=scrollbar.set)
+        self.metrics_tree.configure(yscrollcommand=scrollbar.set)
         scrollbar.pack(side="right", fill="y")
 
         self.load_metrics_table()
@@ -506,7 +507,7 @@ class MentalHealthApp(tk.Tk):
         for row in self.metrics_tree.get_children():
             self.metrics_tree.delete(row)
 
-        self._reset_treeview_headings(self.states_tree)
+        self._reset_treeview_headings(self.metrics_tree)
 
         try:
             conn = get_connection()
@@ -575,30 +576,19 @@ class MentalHealthApp(tk.Tk):
             query = """
                 INSERT INTO crisis_response_services
                     (state_id, metric, us_value, state_value)
-                VALUES (%s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s)
             """
-            cur.execute(query, (state_id, us_val or None, st_val or None, metric))
-        except mysql.connector.errors.ProgrammingError:
-            # if column order in your DB is different, use this safer version:
-            conn.rollback()
-            try:
-                query = """
-                    INSERT INTO crisis_response_services
-                        (state_id, metric, us_value, state_value)
-                    VALUES (%s, %s, %s, %s, %s)
-                """
-                cur.execute(query, (state_id, metric, us_val or None, st_val or None))
-            except Exception as e2:
-                show_db_error(e2)
-                conn.close()
-                return
+            cur.execute(query, (state_id, metric, us_val or None, st_val or None))
+            conn.commit()
         except Exception as e:
             show_db_error(e)
             return
-        else:
-            conn.commit()
-            cur.close()
-            conn.close()
+        finally:
+            try:
+                cur.close()
+                conn.close()
+            except:
+                pass
 
         self.clear_metric_form()
         self.load_metrics_table()
@@ -689,7 +679,7 @@ class MentalHealthApp(tk.Tk):
         self.query_tree.pack(side="left", fill="both", expand=True)
 
         scrollbar = ttk.Scrollbar(self.frame_results, orient="vertical", command=self.query_tree.yview)
-        self.query_tree.configure(yscroll=scrollbar.set)
+        self.query_tree.configure(yscrollcommand=scrollbar.set)
         scrollbar.pack(side="right", fill="y")
 
         # ---------- Query 1 ----------
@@ -852,7 +842,6 @@ class MentalHealthApp(tk.Tk):
             conn = get_connection()
             cur = conn.cursor()
             cur.execute(query, (metric,))
-            self._display_query_results(cur)
             cur.close()
             conn.close()
         except Exception as e:
@@ -890,8 +879,7 @@ class MentalHealthApp(tk.Tk):
         try:
             conn = get_connection()
             cur = conn.cursor()
-            cur.execute(query, (metric,))  # exactly one %s
-            self._display_query_results(cur)
+            cur.execute(query, (metric,))
             cur.close()
             conn.close()
         except Exception as e:
@@ -960,19 +948,25 @@ class MentalHealthApp(tk.Tk):
             ORDER BY avg_gap DESC
         """
 
+        conn = None
+        cur = None
         try:
             conn = get_connection()
-            cur = conn.cursor()
+            # buffered=True is extra-safe with MySQL Connector
+            cur = conn.cursor(buffered=True)
             cur.execute(query, (thresh,))
-            self._display_query_results(cur)
-            cur.close()
-            conn.close()
+
+            self._display_query_results(
+                cur,
+                f"Query Results – Q4: States that outperform the US on average by more than {thresh}."
+            )
         except Exception as e:
             show_db_error(e)
-
-        self._display_query_results(
-            cur,f"Query Results – Q4: States that outperform the US on average by more than {thresh}."
-        )
+        finally:
+            if cur is not None:
+                cur.close()
+            if conn is not None:
+                conn.close()
 
     # ------------------- QUERY 5 --------------------------
     def run_query5(self):
@@ -1031,10 +1025,6 @@ def bring_to_front():
 
     # Let it behave normally again after a moment
     app.after(200, lambda: app.attributes('-topmost', False))
-
-
-
-
 
 
 # =========================================================
