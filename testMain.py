@@ -753,7 +753,7 @@ class MentalHealthApp(tk.Tk):
         ttk.Button(q4, text="Run", command=self.run_query4).pack(side="left", padx=5)
 
         # ---------- Query 5 ----------
-        q5 = ttk.LabelFrame(frame_controls, text="Show states that perform worse than the US on at least N metrics (with details).")
+        q5 = ttk.LabelFrame(frame_controls, text="Q5: Show states that perform worse than the US on at least N metrics (with details).")
         q5.pack(fill="x", pady=3)
 
         ttk.Label(q5, text="N (minimum metrics):").pack(side="left", padx=5)
