@@ -570,23 +570,34 @@ class MentalHealthApp(tk.Tk):
             messagebox.showerror("Error", "Selected state not found in memory.")
             return
 
+        conn = None
+        cur = None
         try:
             conn = get_connection()
             cur = conn.cursor()
+
+            # 1) Get next available ID
+            cur.execute("SELECT COALESCE(MAX(id), 0) + 1 FROM crisis_response_services")
+            next_id = cur.fetchone()[0]
+
+            # 2) Insert row with explicit ID
             query = """
                 INSERT INTO crisis_response_services
-                    (state_id, metric, us_value, state_value)
-                VALUES (%s, %s, %s, %s)
+                    (id, state_id, metric, us_value, state_value)
+                VALUES (%s, %s, %s, %s, %s)
             """
-            cur.execute(query, (state_id, metric, us_val or None, st_val or None))
+            cur.execute(query, (next_id, state_id, metric, us_val or None, st_val or None))
             conn.commit()
+
         except Exception as e:
             show_db_error(e)
             return
         finally:
             try:
-                cur.close()
-                conn.close()
+                if cur is not None:
+                    cur.close()
+                if conn is not None:
+                    conn.close()
             except:
                 pass
 
