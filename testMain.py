@@ -122,14 +122,129 @@ class MentalHealthApp(tk.Tk):
         self.tab_states = ttk.Frame(notebook)
         self.tab_metrics = ttk.Frame(notebook)
         self.tab_queries = ttk.Frame(notebook)
+        self.tab_search = ttk.Frame(notebook)
 
         notebook.add(self.tab_states, text="States (CRUD)")
         notebook.add(self.tab_metrics, text="Crisis Metrics (CRUD)")
         notebook.add(self.tab_queries, text="Analytics / Queries")
+        notebook.add(self.tab_search, text="Facility Search")
 
         self._build_states_tab()
         self._build_metrics_tab()
         self._build_queries_tab()
+        self._build_search_tab()
+        
+    # =====================================================
+    # SEARCH TAB
+    # =====================================================
+    def _build_search_tab(self):
+        # form
+        frame_form = ttk.LabelFrame(self.tab_search, text="Search Facilities by ZIP Code")
+        frame_form.pack(fill="x", padx=10, pady=10)
+
+        ttk.Label(frame_form, text="State:").grid(row=0, column=0, padx=5, pady=5, sticky="e")
+        ttk.Label(frame_form, text="ZIP Code:").grid(row=1, column=0, padx=5, pady=5, sticky="e")
+
+        self.zip_state_var = tk.StringVar()
+        self.zip_code_var = tk.StringVar()
+
+        self.combo_zip_state = ttk.Combobox(frame_form, textvariable=self.zip_state_var, state="readonly", width=30)
+        self.combo_zip_state.grid(row=0, column=1, padx=5, pady=5, sticky="w")
+
+        self.entry_zip_code = ttk.Entry(frame_form, textvariable=self.zip_code_var, width=15)
+        self.entry_zip_code.grid(row=1, column=1, padx=5, pady=5, sticky="w")
+
+        ttk.Button(frame_form, text="Search", command=self.search_facilities).grid(
+            row=2, column=0, columnspan=2, pady=10
+        )
+
+        # table
+        frame_table = ttk.LabelFrame(self.tab_search, text="Matching Facilities")
+        frame_table.pack(fill="both", expand=True, padx=10, pady=10)
+
+        columns = ("id", "facility_name", "address", "city", "state", "zip", "phone")
+        self.zip_tree = ttk.Treeview(frame_table, columns=columns, show="headings", height=18)
+
+        for col in columns:
+            self.zip_tree.heading(
+                col,
+                text=self._format_heading_text(col),
+                command=lambda c=col: self._treeview_sort_column(self.zip_tree, c, False)
+            )
+            widths = {
+                "id": 60,
+                "facility_name": 250,
+                "address": 300,
+                "city": 150,
+                "state": 80,
+                "zip": 100,
+                "phone": 120
+            }
+
+            self.zip_tree.column(col, width=widths[col], anchor="center")
+
+        self.zip_tree.pack(side="left", fill="both", expand=True)
+
+        scrollbar = ttk.Scrollbar(frame_table, orient="vertical", command=self.zip_tree.yview)
+        self.zip_tree.configure(yscroll=scrollbar.set)
+        scrollbar.pack(side="right", fill="y")
+
+        self.refresh_state_dropdowns()
+
+    def search_facilities(self):
+        state_name = self.zip_state_var.get().strip()
+        zip_code = self.zip_code_var.get().strip()
+
+        if not state_name or not zip_code:
+            messagebox.showwarning("Validation", "Please select a state and enter a ZIP code.")
+            return
+
+        state_id = self.state_map.get(state_name)
+        if not state_id:
+            messagebox.showerror("Error", "Selected state not found in memory.")
+            return
+
+        for row in self.zip_tree.get_children():
+            self.zip_tree.delete(row)
+
+        try:
+            conn = get_connection()
+            cur = conn.cursor(dictionary=True)
+
+            query = """
+                SELECT facility_id,
+                    facility_name,
+                    CONCAT(street1, ' ', IFNULL(street2, '')) AS address,
+                    city,
+                    state_id,
+                    (SELECT state_name FROM state_summary WHERE state_id = mh.state_id) AS state,
+                    zip,
+                    phone_number
+                FROM mental_health_facilities mh
+                WHERE state_id = %s AND zip = %s
+            """
+            cur.execute(query, (state_id, zip_code))
+            facilities = cur.fetchall()
+            cur.close()
+            conn.close()
+
+            if not facilities:
+                messagebox.showinfo("No Results", f"No facilities found with ZIP code {zip_code}.")
+                return
+
+            for fac in facilities:
+                self.zip_tree.insert("", "end", values=(
+                    fac['facility_id'],
+                    fac['facility_name'],
+                    fac['address'],
+                    fac['city'],
+                    fac['state'],
+                    fac['zip'],
+                    fac.get('phone_number', '')
+                ))
+
+        except Exception as e:
+            show_db_error(e)
 
     # =====================================================
     # STATES TAB  (CRUD FOR state_summary)
@@ -669,6 +784,8 @@ class MentalHealthApp(tk.Tk):
             self.combo_metric_state["values"] = names
         if hasattr(self, "q3_state_combo"):
             self.q3_state_combo["values"] = names
+        if hasattr(self, "combo_zip_state"):
+            self.combo_zip_state["values"] = names
 
     # ---------------- QUERY TABLE UTIL --------------------
     def _display_query_results(self, cursor, title=None, sortable=True):
@@ -914,6 +1031,10 @@ def bring_to_front():
 
     # Let it behave normally again after a moment
     app.after(200, lambda: app.attributes('-topmost', False))
+
+
+
+
 
 
 # =========================================================
